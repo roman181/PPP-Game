@@ -72,6 +72,12 @@
         }
         .merge-btn:disabled { background: #333; color: #777; cursor: default; }
 
+        .add-to-deck {
+            background: var(--accent); border: none; color: white; padding: 8px 12px;
+            border-radius: 8px; font-weight: bold; cursor: pointer;
+        }
+        .add-to-deck:disabled { background: #333; color: #777; cursor: default; }
+
         /* DECK BUILDER STYLES */
         .deck-builder {
             background: rgba(26,42,108,0.3); border-radius: 16px; padding: 15px; margin: 15px 0;
@@ -214,8 +220,7 @@
     <div id="toast"></div>
 
 <script>
-/** * CLASH OF PEPE: ARENA PRO - OPTIMIERTER KAMPF & ANGRIFF
- */
+/** * CLASH OF PEPE: ARENA PRO - BUGFIX VERSION */
 
 const CFG = { 
     mapW: 950, 
@@ -273,12 +278,17 @@ Object.keys(UNIT_DB).forEach(k => player.units[k] = { l: 1, c: 0 });
 let game = {
     active: false, ctx: null, cvs: null, w: 0, h: 0, camX: 0, elixir: 5, wTimer: 0, lastT: 0, shake: 0,
     ents: [], projs: [], particles: [],
-    towers: { 
-        p:{x:80, hp:2500, max:2500, rng: 280, dmg: 35, cool: 0, atkSpd: 1.2}, 
-        e:{x:870, hp:2500, max:2500, rng: 280, dmg: 35, cool: 0, atkSpd: 1.2} 
-    },
+    towers: null,  // wird in startGame() initialisiert (braucht game.h)
     battleDeck: []
 };
+
+function initTowers() {
+    // Türme mit y-Position (wichtig für Hit-Effekte und Angriffslogik)
+    game.towers = { 
+        p: { x:80,  y: game.h * 0.58, hp:2500, max:2500, rng: 280, dmg: 35, cool: 0, atkSpd: 1.2, isTower: true },
+        e: { x:870, y: game.h * 0.58, hp:2500, max:2500, rng: 280, dmg: 35, cool: 0, atkSpd: 1.2, isTower: true }
+    };
+}
 
 function save() { localStorage.setItem(CFG.saveKey, JSON.stringify(player)); }
 function load() {
@@ -318,6 +328,7 @@ function renderDeckSlots() {
 function openUnitSelector() {
     const available = Object.keys(UNIT_DB).filter(k => !player.deck.includes(k) && player.units[k].c > 0);
     if(available.length === 0) return toast("Keine verfügbaren Karten!");
+    // Nimm die erste verfügbare – du kannst später einen echten Selector bauen
     addToDeck(available[0]);
 }
 function addToDeck(k) {
@@ -329,13 +340,35 @@ function removeFromDeck(k) {
 }
 
 // PARTIKEL & EFFEKTE
-class Particle { constructor(x, y, color, size=3, speed=10) { this.x=x; this.y=y; this.vx=(Math.random()-0.5)*speed; this.vy=(Math.random()-0.5)*speed; this.life=1.0; this.color=color; this.size=size; }
+class Particle { 
+    constructor(x, y, color, size=3, speed=10) { 
+        this.x=x; this.y=y; 
+        this.vx=(Math.random()-0.5)*speed; 
+        this.vy=(Math.random()-0.5)*speed; 
+        this.life=1.0; this.color=color; this.size=size; 
+    }
     update(dt) { this.x+=this.vx; this.y+=this.vy; this.life-=dt*2; }
     draw(ctx) { ctx.globalAlpha=this.life; ctx.fillStyle=this.color; ctx.fillRect(this.x, this.y, this.size, this.size); ctx.globalAlpha=1; }
 }
-function spawnHit(x, y, color="#ffeb3b") { for(let i=0; i<10; i++) game.particles.push(new Particle(x, y, color)); game.shake=4; }
-function spawnTowerExplosion(x, y) { for(let i=0; i<45; i++) { let p=new Particle(x,y,i%2?"#ff9800":"#ff5722",4,15); p.life=2.0; game.particles.push(p); } game.shake=40; }
-function toast(m) { const t=document.getElementById('toast'); t.innerText=m; t.style.opacity=1; setTimeout(()=>t.style.opacity=0, 2500); }
+function spawnHit(x, y, color="#ffeb3b") { 
+    if(isNaN(x) || isNaN(y)) return; // Sicherheitscheck
+    for(let i=0; i<10; i++) game.particles.push(new Particle(x, y, color)); 
+    game.shake=4; 
+}
+function spawnTowerExplosion(x, y) { 
+    if(isNaN(x) || isNaN(y)) return;
+    for(let i=0; i<45; i++) { 
+        let p=new Particle(x, y, i%2?"#ff9800":"#ff5722", 4, 15); 
+        p.life=2.0; game.particles.push(p); 
+    } 
+    game.shake=40; 
+}
+function toast(m) { 
+    const t=document.getElementById('toast'); 
+    t.innerText=m; t.style.opacity=1; 
+    clearTimeout(t._timeout);
+    t._timeout = setTimeout(()=>t.style.opacity=0, 2500); 
+}
 
 function renderMenu() {
     document.getElementById('coin-count').innerText = Math.floor(player.coins);
@@ -350,36 +383,85 @@ function renderMenu() {
 }
 function buyChest(sz) {
     const p={small:50, medium:100, large:200}[sz], n={small:2, medium:5, large:12}[sz];
-    if(player.coins>=p) { player.coins-=p; const keys=Object.keys(UNIT_DB); for(let i=0;i<n;i++) player.units[keys[Math.floor(Math.random()*keys.length)]].c++; save(); renderMenu(); toast("Karten erhalten!"); }
+    if(player.coins>=p) { 
+        player.coins-=p; 
+        const keys=Object.keys(UNIT_DB); 
+        for(let i=0;i<n;i++) {
+            let rk = keys[Math.floor(Math.random()*keys.length)];
+            player.units[rk].c++; 
+        }
+        save(); renderMenu(); toast("Karten erhalten!"); 
+    }
     else toast("Nicht genug Coins!");
 }
-function merge(k) { player.units[k].c-=2; player.units[k].l++; save(); renderMenu(); toast(UNIT_DB[k].name+" Level UP!"); }
+function merge(k) { 
+    if(player.units[k].c < 2) return;
+    player.units[k].c-=2; player.units[k].l++; 
+    save(); renderMenu(); toast(UNIT_DB[k].name+" Level UP!"); 
+}
 
 // GAME CORE
 function startGame() {
     if(player.deck.length!==CFG.deckSize) return toast(`Wähle erst ${CFG.deckSize} Karten!`);
     document.getElementById('menu-screen').classList.remove('active');
     document.getElementById('game-screen').classList.add('active');
-    game.cvs=document.getElementById('gameCanvas'); game.ctx=game.cvs.getContext('2d'); resize();
-    game.elixir=5; game.ents=[]; game.projs=[]; game.particles=[]; game.camX=0;
-    game.towers.p.hp=game.towers.p.max; game.towers.e.hp=game.towers.e.max;
+    game.cvs=document.getElementById('gameCanvas'); 
+    game.ctx=game.cvs.getContext('2d'); 
+    resize(); 
+    initTowers();  // Türme MIT y-Position initialisieren
+    game.elixir=5; 
+    game.ents=[]; 
+    game.projs=[]; 
+    game.particles=[]; 
+    game.camX=0;
+    game.wTimer=0;
     game.battleDeck=[...player.deck];
-    AUDIO.bgm.play().catch(()=>{}); buildDeck(); game.active=true; game.lastT=performance.now();
+    
+    // UI sofort aktualisieren
+    document.getElementById('elixir-txt').innerText = Math.floor(game.elixir);
+    document.getElementById('elixir-bar').style.width = (game.elixir/10)*100 + "%";
+    document.getElementById('hp-p').style.width = "100%";
+    document.getElementById('hp-e').style.width = "100%";
+    document.getElementById('wave-display').innerText = "WELLE " + player.wave;
+
+    AUDIO.bgm.play().catch(()=>{}); 
+    buildDeck(); 
+    game.active=true; 
+    game.lastT=performance.now();
     requestAnimationFrame(loop);
 }
+
 function buildDeck() {
     const dock=document.getElementById('card-dock'); dock.innerHTML='';
     game.battleDeck.forEach(k=>{
-        const card=document.createElement('div'); card.className='game-card disabled'; card.id='card-'+k;
-        card.onclick=()=>spawn(k); card.innerHTML=`<div class="g-cost">${UNIT_DB[k].cost}</div><img src="${IMAGES[k].src}" class="g-img">`;
+        const card=document.createElement('div'); 
+        card.className='game-card disabled'; 
+        card.id='card-'+k;
+        card.onclick=()=>spawn(k); 
+        card.innerHTML=`<div class="g-cost">${UNIT_DB[k].cost}</div><img src="${IMAGES[k].src}" class="g-img">`;
         dock.appendChild(card);
     });
 }
+
+/** Findet die kleinste freie Lane (0-2) */
+function findFreeLane() {
+    const usedLanes = game.ents.filter(e => e.isP).map(e => e.lane);
+    for(let i = 0; i < 3; i++) {
+        if(!usedLanes.includes(i)) return i;
+    }
+    // Falls alle belegt: die am wenigsten genutzte
+    let counts = [0,0,0];
+    usedLanes.forEach(l => counts[l]++);
+    return counts.indexOf(Math.min(...counts));
+}
+
 function spawn(k) {
+    if(!game.active) return;
     if(game.elixir>=UNIT_DB[k].cost) {
         game.elixir-=UNIT_DB[k].cost;
-        game.ents.push(new Ent(k, true, player.units[k].l, game.ents.filter(e=>e.isP).length));
-        if(!muted) AUDIO.spawn.cloneNode().play();
+        let lane = findFreeLane();  // Bugfix: kleinste freie Lane statt Anzahl
+        game.ents.push(new Ent(k, true, player.units[k].l, lane));
+        if(!muted) AUDIO.spawn.cloneNode().play().catch(()=>{});
     }
 }
 
@@ -393,7 +475,7 @@ class Ent {
         this.dmg = d.dmg * scale; this.rng = d.rng; this.spd = d.spd; this.proj = d.proj;
         this.atkDelay = 1.0 / (d.atkSpd || 1.0); this.cool = 0;
         this.w = 65; this.h = 65; this.atkFlash = 0;
-        this.lane = laneIdx % 3; // 3 Spuren für bessere Formation
+        this.lane = laneIdx % 3;
         this.x = isP ? game.towers.p.x + 30 : game.towers.e.x - 30;
         this.y = (game.h * 0.55) + (this.lane * 35 - 35) + (Math.random()*10-5);
     }
@@ -401,40 +483,62 @@ class Ent {
         if(this.atkFlash > 0) this.atkFlash -= dt * 5;
         if(this.cool > 0) this.cool -= dt;
 
+        const enemyTw = this.isP ? game.towers.e : game.towers.p;
+        
         // Intelligente Zielwahl: Priorität auf Feinde in Turm-Nähe, dann Distanz, dann HP
         let target = null, bestScore = 99999;
-        const enemyTw = this.isP ? game.towers.e : game.towers.p;
         game.ents.forEach(e => {
-            if(e.isP !== this.isP) {
+            if(e.isP !== this.isP && e.hp > 0) {
                 let dist = Math.abs(e.x - this.x);
                 if(dist <= this.rng) {
-                    let score = dist + (enemyTw.isP ? enemyTw.x - e.x : e.x - enemyTw.x) * 0.5 + e.hp * 0.1;
+                    // Score: niedriger = besser. Distanz + wie nah am eigenen Turm + etwas HP-Gewicht
+                    let score = dist + (enemyTw.x - e.x) * 0.5 + e.hp * 0.1;
                     if(score < bestScore) { bestScore = score; target = e; }
                 }
             }
         });
 
+        // Fallback: gegnerischen Turm angreifen wenn in Reichweite
         let distTw = Math.abs(enemyTw.x - this.x);
         if(!target && distTw <= this.rng) target = enemyTw;
 
         if(target) {
             if(this.cool <= 0) {
-                this.cool = this.atkDelay; this.atkFlash = 1;
-                if(typeof target === 'object' && target.hp !== undefined) {
-                    // Einheit angreifen
-                    if(this.proj) game.projs.push({x:this.x, y:this.y-30, tx:target.x, ty:target.y-30, p:this.proj, d:this.dmg, target:target, dead:false});
-                    else { target.hp -= this.dmg; spawnHit(target.x, target.y-30, this.isP?"#4caf50":"#f44336"); if(!muted) AUDIO.hit.currentTime=0, AUDIO.hit.play().catch(()=>{}); }
-                } else {
-                    // Turm angreifen
-                    enemyTw.hp -= this.dmg; spawnHit(enemyTw.x, this.y-20, "red"); if(!muted) AUDIO.hit.currentTime=0, AUDIO.hit.play().catch(()=>{});
+                this.cool = this.atkDelay; 
+                this.atkFlash = 1;
+                
+                // BUGFIX: Unterscheide Einheit (hat isP) von Turm (hat kein isP, aber isTower)
+                if(target.isP !== undefined) {
+                    // Ziel ist eine Einheit
+                    if(this.proj) {
+                        game.projs.push({
+                            x:this.x, y:this.y-30, 
+                            tx:target.x, ty:target.y-30, 
+                            p:this.proj, d:this.dmg, 
+                            target:target, dead:false
+                        });
+                    } else {
+                        target.hp -= this.dmg; 
+                        spawnHit(target.x, target.y-30, this.isP?"#4caf50":"#f44336"); 
+                        if(!muted) { AUDIO.hit.currentTime=0; AUDIO.hit.play().catch(()=>{}); }
+                    }
+                } else if(target.isTower) {
+                    // Ziel ist ein Turm
+                    target.hp -= this.dmg; 
+                    spawnHit(target.x, target.y, "#ff9800");  // BUGFIX: target.y existiert jetzt
+                    if(!muted) { AUDIO.hit.currentTime=0; AUDIO.hit.play().catch(()=>{}); }
                 }
             }
         } else {
-            // Bewegen mit Kollisionsvermeidung (einfach)
+            // Kein Ziel in Reichweite → vorwärts bewegen
             let move = this.spd * dt * (this.isP ? 1 : -1);
+            // Einfache Kollisionsvermeidung
             let blocked = false;
             game.ents.forEach(e => {
-                if(e.isP === this.isP && e !== this && Math.abs(e.x - this.x) < 30 && Math.abs(e.y - this.y) < 30) blocked = true;
+                if(e !== this && e.isP === this.isP && e.hp > 0 &&
+                   Math.abs(e.x - this.x) < 30 && Math.abs(e.y - this.y) < 30) {
+                    blocked = true;
+                }
             });
             if(!blocked) this.x += move;
         }
@@ -442,11 +546,17 @@ class Ent {
     draw(ctx) {
         ctx.save(); ctx.translate(this.x, this.y);
         if(!this.isP) ctx.scale(-1, 1);
-        if(this.atkFlash > 0.5) { ctx.shadowBlur = 15; ctx.shadowColor = this.isP ? "#4caf50" : "#f44336"; }
+        if(this.atkFlash > 0.5) { 
+            ctx.shadowBlur = 15; 
+            ctx.shadowColor = this.isP ? "#4caf50" : "#f44336"; 
+        }
         ctx.drawImage(IMAGES[this.k], -this.w/2, -this.h, this.w, this.h);
         ctx.restore();
-        ctx.fillStyle = "rgba(0,0,0,0.6)"; ctx.fillRect(this.x-22, this.y-this.h-14, 44, 6);
-        ctx.fillStyle = this.isP ? "#4caf50" : "#f44336"; ctx.fillRect(this.x-22, this.y-this.h-14, 44 * (this.hp/this.max), 6);
+        // Lebensbalken
+        ctx.fillStyle = "rgba(0,0,0,0.6)"; 
+        ctx.fillRect(this.x-22, this.y-this.h-14, 44, 6);
+        ctx.fillStyle = this.isP ? "#4caf50" : "#f44336"; 
+        ctx.fillRect(this.x-22, this.y-this.h-14, 44 * (this.hp/this.max), 6);
     }
 }
 
@@ -454,53 +564,92 @@ class Ent {
 function updateTowers(dt) {
     ['p', 'e'].forEach(side => {
         const tw = game.towers[side];
+        if(tw.hp <= 0) return;
         tw.cool -= dt;
         if(tw.cool <= 0) {
             let closest = null, minD = 9999;
             game.ents.forEach(e => {
-                if(e.isP !== (side==='p')) {
+                if(e.hp > 0 && e.isP !== (side==='p')) {
                     let d = Math.abs(e.x - tw.x);
                     if(d < tw.rng && d < minD) { minD = d; closest = e; }
                 }
             });
             if(closest) {
                 tw.cool = 1.0 / tw.atkSpd;
-                game.projs.push({x:tw.x, y:game.h*0.55, tx:closest.x, ty:closest.y-30, p: side==='p'?'🔰':'🔥', d:tw.dmg, target:closest, dead:false});
-                spawnHit(tw.x, game.h*0.55, side==='p'?"#4caf50":"#f44336");
+                game.projs.push({
+                    x:tw.x, y:tw.y-20, 
+                    tx:closest.x, ty:closest.y-30, 
+                    p: side==='p'?'🔰':'🔥', d:tw.dmg, 
+                    target:closest, dead:false
+                });
+                spawnHit(tw.x, tw.y-20, side==='p'?"#4caf50":"#f44336");
             }
         }
     });
 }
 
 function update(dt) {
+    if(!game.active) return;
+    
     if(game.elixir < CFG.elixirMax) game.elixir += CFG.regen * dt;
+    
+    // Einheiten updaten (tote werden gefiltert)
     game.ents.forEach(e => e.update(dt));
     game.ents = game.ents.filter(e => e.hp > 0);
+    
     updateTowers(dt);
     
+    // Projektile updaten
     game.projs.forEach(p => {
         if(p.dead) return;
-        let tx = p.target ? p.target.x : p.tx, ty = p.target ? p.target.y-30 : p.ty;
+        // BUGFIX: Prüfe ob Ziel noch existiert
+        let targetAlive = false;
+        if(p.target) {
+            if(p.target.isTower) {
+                targetAlive = p.target.hp > 0;
+            } else {
+                targetAlive = game.ents.includes(p.target) && p.target.hp > 0;
+            }
+        }
+        if(!targetAlive) {
+            p.dead = true;
+            return;
+        }
+        
+        let tx = p.target.x, ty = p.target.isTower ? p.target.y : p.target.y-30;
         let dx = tx - p.x, dy = ty - p.y;
         let dist = Math.sqrt(dx*dx+dy*dy);
         if(dist < 15) { 
             p.dead = true; 
-            if(p.target && p.target.hp > 0) { p.target.hp -= p.d; spawnHit(p.x, p.y, "#ffeb3b"); if(!muted) AUDIO.hit.currentTime=0, AUDIO.hit.play().catch(()=>{}); }
-        } else { p.x += (dx/dist)*800*dt; p.y += (dy/dist)*800*dt; }
+            if(p.target.hp > 0) { 
+                p.target.hp -= p.d; 
+                spawnHit(tx, ty, "#ffeb3b"); 
+                if(!muted) { AUDIO.hit.currentTime=0; AUDIO.hit.play().catch(()=>{}); }
+            }
+        } else { 
+            p.x += (dx/dist)*800*dt; 
+            p.y += (dy/dist)*800*dt; 
+        }
     });
     game.projs = game.projs.filter(p => !p.dead);
+    
+    // Partikel updaten
     game.particles.forEach(p => p.update(dt));
     game.particles = game.particles.filter(p => p.life > 0);
 
-    // Wellen-System verbessert
+    // Wellen-System (Gegner spawnen)
     game.wTimer += dt;
-    if(game.wTimer > (4.5 - Math.min(2.0, player.wave * 0.25))) {
+    let spawnInterval = Math.max(1.5, 4.5 - Math.min(2.0, player.wave * 0.25));
+    if(game.wTimer > spawnInterval) {
         game.wTimer = 0;
         let keys = Object.keys(UNIT_DB);
-        game.ents.push(new Ent(keys[Math.floor(Math.random()*keys.length)], false, player.wave, game.ents.filter(e=>!e.isP).length));
+        let rk = keys[Math.floor(Math.random()*keys.length)];
+        let lane = Math.floor(Math.random()*3);
+        game.ents.push(new Ent(rk, false, player.wave, lane));
     }
 
-    let pUnits = game.ents.filter(e => e.isP);
+    // Kamera folgt eigenen Einheiten
+    let pUnits = game.ents.filter(e => e.isP && e.hp > 0);
     if(pUnits.length) {
         let avgX = pUnits.reduce((a,b)=>a+b.x, 0) / pUnits.length;
         let targetCam = Math.max(0, Math.min(avgX - game.w/2, CFG.mapW - game.w));
@@ -508,26 +657,35 @@ function update(dt) {
     }
     if(game.shake > 0) game.shake -= dt * 40;
 
+    // UI aktualisieren
     document.getElementById('elixir-txt').innerText = Math.floor(game.elixir);
     document.getElementById('elixir-bar').style.width = (game.elixir/10)*100 + "%";
     document.getElementById('hp-p').style.width = Math.max(0,(game.towers.p.hp/game.towers.p.max)*100) + "%";
     document.getElementById('hp-e').style.width = Math.max(0,(game.towers.e.hp/game.towers.e.max)*100) + "%";
     document.getElementById('wave-display').innerText = "WELLE " + player.wave;
 
+    // Karten-Status aktualisieren
     game.battleDeck.forEach(k => {
         const card = document.getElementById('card-'+k);
         if(card) {
-            if(game.elixir >= UNIT_DB[k].cost) card.classList.add('ready'), card.classList.remove('disabled');
-            else card.classList.add('disabled'), card.classList.remove('ready');
+            if(game.elixir >= UNIT_DB[k].cost) {
+                card.classList.add('ready'); 
+                card.classList.remove('disabled');
+            } else {
+                card.classList.add('disabled'); 
+                card.classList.remove('ready');
+            }
         }
     });
 
+    // Spielende prüfen
     if(game.towers.p.hp <= 0) endGame(false);
     if(game.towers.e.hp <= 0) endGame(true);
 }
 
 function draw() {
-    let ctx = game.ctx; ctx.clearRect(0,0,game.w, game.h);
+    let ctx = game.ctx; 
+    ctx.clearRect(0,0,game.w, game.h);
     ctx.save();
     if(game.shake > 0) ctx.translate((Math.random()-0.5)*game.shake, (Math.random()-0.5)*game.shake);
     ctx.translate(-game.camX, 0);
@@ -535,35 +693,75 @@ function draw() {
     
     // Türme zeichnen
     ctx.font = "90px Arial"; ctx.textAlign = "center";
-    ctx.fillText("🏰", game.towers.p.x, game.h * 0.58);
-    ctx.fillText("🏯", game.towers.e.x, game.h * 0.58);
+    ctx.fillText("🏰", game.towers.p.x, game.towers.p.y);
+    ctx.fillText("🏯", game.towers.e.x, game.towers.e.y);
     ctx.font = "16px Arial"; ctx.fillStyle = "#fff";
-    ctx.fillText(Math.floor(game.towers.p.hp), game.towers.p.x, game.h * 0.58 + 40);
-    ctx.fillText(Math.floor(game.towers.e.hp), game.towers.e.x, game.h * 0.58 + 40);
+    ctx.fillText(Math.floor(Math.max(0, game.towers.p.hp)), game.towers.p.x, game.towers.p.y + 40);
+    ctx.fillText(Math.floor(Math.max(0, game.towers.e.hp)), game.towers.e.x, game.towers.e.y + 40);
     
+    // Einheiten (nach y sortiert für Tiefenwirkung)
     game.ents.sort((a,b) => a.y - b.y).forEach(e => e.draw(ctx));
+    
+    // Projektile
     game.projs.forEach(p => {
-        ctx.font = "22px Arial"; ctx.fillText(p.p, p.x-10, p.y+5);
+        ctx.font = "22px Arial"; 
+        ctx.fillText(p.p, p.x-10, p.y+5);
     });
+    
+    // Partikel
     game.particles.forEach(p => p.draw(ctx));
     ctx.restore();
 }
 
 function endGame(win) {
-    game.active = false; AUDIO.bgm.pause();
-    let tx = win ? game.towers.e.x : game.towers.p.x;
-    spawnTowerExplosion(tx, game.h * 0.6);
-    if(win) { if(!muted) AUDIO.victory.play(); player.coins += 200 + (player.wave * 10); player.wave++; toast("💥 BASIS ZERSTÖRT! SIEG! 💥"); }
-    else toast("💀 DEINE BASIS IST GEFALLEN...");
+    game.active = false; 
+    AUDIO.bgm.pause();
+    let tw = win ? game.towers.e : game.towers.p;
+    spawnTowerExplosion(tw.x, tw.y);
+    if(win) { 
+        if(!muted) AUDIO.victory.play().catch(()=>{}); 
+        player.coins += 200 + (player.wave * 10); 
+        player.wave++; 
+        toast("💥 BASIS ZERSTÖRT! SIEG! 💥"); 
+    } else {
+        toast("💀 DEINE BASIS IST GEFALLEN...");
+    }
     save();
-    setTimeout(() => { document.getElementById('game-screen').classList.remove('active'); document.getElementById('menu-screen').classList.add('active'); renderMenu(); }, 2800);
+    setTimeout(() => { 
+        document.getElementById('game-screen').classList.remove('active'); 
+        document.getElementById('menu-screen').classList.add('active'); 
+        renderMenu(); 
+    }, 2800);
 }
 
-function resize() { game.w = window.innerWidth; game.h = window.innerHeight; game.cvs.width = game.w; game.cvs.height = game.h; }
-function loop(t) { if(!game.active) return; let dt = Math.min(0.1, (t - game.lastT)/1000); game.lastT = t; update(dt); draw(); requestAnimationFrame(loop); }
+function resize() { 
+    game.w = window.innerWidth; 
+    game.h = window.innerHeight; 
+    game.cvs.width = game.w; 
+    game.cvs.height = game.h;
+    // Wenn Türme schon existieren, y aktualisieren
+    if(game.towers) {
+        game.towers.p.y = game.h * 0.58;
+        game.towers.e.y = game.h * 0.58;
+    }
+}
+
+function loop(t) { 
+    if(!game.active) return; 
+    let dt = Math.min(0.1, (t - game.lastT)/1000); 
+    game.lastT = t; 
+    update(dt); 
+    draw(); 
+    requestAnimationFrame(loop); 
+}
 
 document.getElementById('start-btn').onclick = startGame;
-document.getElementById('mute-toggle').onclick = () => { muted = !muted; AUDIO.bgm.muted = muted; AUDIO.hit.muted = muted; document.getElementById('mute-toggle').innerText = muted ? "🔇" : "🔊"; };
+document.getElementById('mute-toggle').onclick = () => { 
+    muted = !muted; 
+    AUDIO.bgm.muted = muted; 
+    AUDIO.hit.muted = muted; 
+    document.getElementById('mute-toggle').innerText = muted ? "🔇" : "🔊"; 
+};
 window.addEventListener('resize', resize);
 window.onload = () => { load(); renderMenu(); };
 </script>
